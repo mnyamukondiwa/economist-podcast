@@ -1,0 +1,5 @@
+# Exclude Archive folder (contains large original MP3s)
+Archive/
+
+# Exclude any original MP3 files
+original*.mp3
