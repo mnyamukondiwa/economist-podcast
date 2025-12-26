@@ -1,77 +1,73 @@
 The Economist Weekly Edition
-Processed: 2025-12-26 20:07:35
+Processed: 2025-12-26 20:34:39
 ============================================================
 
 01 - 002 The world this week - Politics this week.mp3
 02 - 003 The world this week - Business this week.mp3
-03 - 010 Letters - Letters to the editor X.mp3
-05 - 066 Business - VinFast.mp3
-06 - 064 Business - Export controls.mp3
-07 - 073 Finance and economics - Booze and business.mp3
-08 - 067 Business - Bartleby.mp3
-09 - 063 Business - Retail.mp3
-10 - 068 Business - Schumpeter.mp3
-11 - 065 Business - Internet regulation.mp3
-12 - 062 Business - The fight for Warner Bros.mp3
-14 - 072 Finance and economics - Interest rates.mp3
-15 - 074 Finance and economics - Buttonwood.mp3
-16 - 071 Finance and economics - American finance.mp3
-17 - 070 Finance and economics - The year in review.mp3
-18 - 075 Finance and economics - Free exchange.mp3
-33 - 051 Britain - Christmas bonuses.mp3
-34 - 085 Culture - The best albums of 2025.mp3
-35 - 055 Britain - Off-the-pitch battles.mp3
-36 - 038 Middle East and Africa - Congo and Rwanda.mp3
-37 - 020 United States - Heal thyself.mp3
-38 - 041 Middle East and Africa - Israel and Syria.mp3
-39 - 086 Culture - Fashion.mp3
-40 - 080 Science and technology - Well informed.mp3
-41 - 028 Asia - Thailand and Cambodia.mp3
-42 - 079 Science and technology - The taming of fire.mp3
-43 - 034 China - Smoking.mp3
-44 - 046 Europe - Sanctions against Russia.mp3
-45 - 009 Leaders - Entertainment.mp3
-46 - 044 Europe - Albania.mp3
-47 - 006 Leaders - America abroad.mp3
-48 - 053 Britain - Quizzes.mp3
-49 - 045 Europe - Turkeys Kurds.mp3
-50 - 039 Middle East and Africa - Abductions in Nigeria.mp3
-51 - 054 Britain - Wool.mp3
-52 - 007 Leaders - The global economy.mp3
-53 - 018 United States - Target speedboats.mp3
-54 - 030 Asia - Banyan.mp3
-55 - 087 Culture - Back Story.mp3
-56 - 084 Culture - Art and exile.mp3
-57 - 008 Leaders - Tariffs.mp3
-58 - 047 Europe - Ukraine negotiations.mp3
-59 - 024 The Americas - The Trump corollary.mp3
-60 - 033 China - China and Canada.mp3
-61 - 040 Middle East and Africa - Lebanon.mp3
-62 - 029 Asia - Politics in Australia.mp3
-63 - 083 Culture - Religion and technology.mp3
-64 - 025 The Americas - Chainsaw politics.mp3
-65 - 017 United States - City politics.mp3
-66 - 078 Science and technology - Rocket science.mp3
-67 - 048 Europe - Ukraines trains.mp3
-68 - 050 Britain - Populists in power.mp3
-69 - 052 Britain - AI and policing.mp3
-70 - 089 By Invitation - By Invitation.mp3
-71 - 021 United States - Lexington.mp3
-72 - 035 China - Chaguan.mp3
-73 - 043 Europe - Russia.mp3
-74 - 091 Obituary - Obituary.mp3
-75 - 037 Middle East and Africa - Guinea.mp3
-76 - 027 Asia - Urban governance.mp3
-77 - 005 Leaders - Politics.mp3
-78 - 058 International - The Telegram.mp3
-79 - 019 United States - Gambling.mp3
-80 - 016 United States - Presidential power.mp3
-81 - 082 Culture - Conservative womens media.mp3
-82 - 032 China - The economy.mp3
-83 - 077 Science and technology - AI agents.mp3
-84 - 023 The Americas - Chiles election.mp3
-85 - 057 International - American diplomacy.mp3
-86 - 060 1843 - Luxury.mp3
-88 - 012 Briefing - Reform UK.mp3
-89 - 013 Briefing - The German alternative.mp3
-90 - 014 Briefing - Frances hard right.mp3
+03 - 010 Letters - Letters to the editor.mp3
+05 - 060 Business - Artificial intelligence _2_.mp3
+06 - 061 Business - Bartleby.mp3
+07 - 062 Business - Office romance.mp3
+08 - 049 Britain - Business sentiment.mp3
+09 - 058 Business - Human resources.mp3
+10 - 059 Business - Artificial intelligence _1_.mp3
+11 - 063 Business - Schumpeter.mp3
+12 - 057 Business - American business.mp3
+14 - 068 Finance and economics - Labour markets.mp3
+15 - 069 Finance and economics - Buttonwood.mp3
+16 - 070 Finance and economics - Free exchange.mp3
+17 - 066 Finance and economics - Investing trends.mp3
+18 - 067 Finance and economics - Shutdown lessons.mp3
+19 - 065 Finance and economics - Government interventio.mp3
+33 - 037 Middle East and Africa - Gaza.mp3
+34 - 022 The Americas - Narco-culture.mp3
+35 - 044 Europe - Italy.mp3
+36 - 078 Culture - Trash TV.mp3
+37 - 028 Asia - Japanese society.mp3
+38 - 051 Britain - Tax avoidance.mp3
+39 - 033 China - Uyghur pronunciation.mp3
+40 - 079 Culture - Memento mori.mp3
+41 - 043 Europe - Ukraine.mp3
+42 - 017 United States - The new school run.mp3
+43 - 026 Asia - Indian security.mp3
+44 - 080 Culture - Francisco Franco.mp3
+45 - 074 Science and technology - Animal communication.mp3
+46 - 075 Science and technology - Well informed.mp3
+47 - 032 China - International clout.mp3
+48 - 008 Leaders - Violence in Mexico.mp3
+49 - 050 Britain - Intelligence-sharing.mp3
+50 - 007 Leaders - The BBC.mp3
+51 - 009 Leaders - Ethiopia_ Eritrea and Tigray.mp3
+52 - 015 United States - Governing.mp3
+53 - 029 Asia - Banyan.mp3
+54 - 042 Europe - Georgia.mp3
+55 - 038 Middle East and Africa - Syria and America.mp3
+56 - 082 Culture - Pass the popcorn.mp3
+57 - 081 Culture - Back Story.mp3
+58 - 073 Science and technology - Digital divination.mp3
+59 - 016 United States - Social policy.mp3
+60 - 019 United States - Lexington.mp3
+61 - 027 Asia - South Korean diplomacy.mp3
+62 - 055 International - The Telegram.mp3
+63 - 052 Britain - Bagehot.mp3
+64 - 023 The Americas - Elections in Chile.mp3
+65 - 034 China - Chaguan.mp3
+66 - 018 United States - Homeschooling.mp3
+67 - 006 Leaders - Trade and development.mp3
+68 - 084 By Invitation - By Invitation.mp3
+69 - 086 Obituary - Obituary.mp3
+70 - 025 Asia - Gujarat v Tamil Nadu.mp3
+71 - 045 Europe - Charlemagne.mp3
+72 - 077 Culture - Comedy.mp3
+73 - 036 Middle East and Africa - Rebuilding Gaza.mp3
+74 - 039 Middle East and Africa - The Horn of Africa.mp3
+75 - 005 Leaders - The AI bubble.mp3
+76 - 021 The Americas - Violence in Mexico.mp3
+77 - 072 Science and technology - Electronic therapy.mp3
+78 - 047 Britain - The BBC.mp3
+79 - 014 United States - Immigration.mp3
+80 - 031 China - Fentanyl.mp3
+81 - 048 Britain - Tax and the budget.mp3
+82 - 041 Europe - Spain.mp3
+83 - 054 International - Authoritarian assistance.mp3
+85 - 012 Briefing - Formosan flu.mp3
