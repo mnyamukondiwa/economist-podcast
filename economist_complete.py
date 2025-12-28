@@ -329,7 +329,7 @@ Starting workflow...
                     print(f"  {i:02d}. {clean_title} ({chapter['duration']/60:.1f} min, {chapter_size_mb:.1f} MB) ✓")
 
             # Chapter list
-            summary_file = os.path.join(output_folder, "00 - Chapter List.txt")
+            # summary_file = os.path.join(output_folder, "00 - Chapter List.txt")
             with open(summary_file, "w", encoding="utf-8") as f:
                 f.write("The Economist Weekly Edition\n")
                 f.write(f"Processed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
