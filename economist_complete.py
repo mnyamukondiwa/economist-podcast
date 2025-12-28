@@ -342,14 +342,14 @@ Starting complete workflow...
         
         channel = ET.SubElement(rss, 'channel')
         
-        # Podcast metadata
-        ET.SubElement(channel, 'title').text = 'The Economist Weekly Edition (Chapters)'
-        ET.SubElement(channel, 'description').text = 'The Economist Weekly Edition split into chapters for easier listening'
+        # Podcast metadata - make it clearly personal/custom
+        ET.SubElement(channel, 'title').text = 'My Economist Chapters'
+        ET.SubElement(channel, 'description').text = 'Personal custom-sorted chapters from The Economist Weekly Edition'
         ET.SubElement(channel, 'language').text = 'en-us'
         ET.SubElement(channel, 'link').text = self.feed_url
         
         # iTunes metadata
-        ET.SubElement(channel, '{http://www.itunes.com/dtds/podcast-1.0.dtd}author').text = 'The Economist (Processed)'
+        ET.SubElement(channel, '{http://www.itunes.com/dtds/podcast-1.0.dtd}author').text = 'Personal Feed'
         ET.SubElement(channel, '{http://www.itunes.com/dtds/podcast-1.0.dtd}explicit').text = 'no'
         
         # Find all episode folders
@@ -475,7 +475,7 @@ def main():
     
     BASE_FOLDER = os.path.dirname(os.path.abspath(__file__))
     GITHUB_USERNAME = "mnyamukondiwa"
-    GITHUB_REPO = "economist-podcast"
+    GITHUB_REPO = "economist-chapters"  # NEW REPO NAME
     
     processor = EconomistPodcastMaster(BASE_FOLDER, GITHUB_USERNAME, GITHUB_REPO)
     processor.run_complete_workflow()
