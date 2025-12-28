@@ -1,7 +1,7 @@
 import os
 import subprocess
 from datetime import datetime, timedelta
-from mutagen.id3 import ID3
+from mutagen.id3 import ID3, TIT2, TALB, TPE1, TRCK, ID3NoHeaderError
 import shutil
 
 import xml.etree.ElementTree as ET
@@ -9,7 +9,9 @@ from xml.dom import minidom
 import re
 from pathlib import Path
 from urllib.parse import quote
+
 GUID_VERSION = "v2"
+
 class EconomistPodcastMaster:
     """
     Local workflow:
@@ -97,7 +99,7 @@ Starting workflow...
 
 📡 Feed URL: {self.feed_url}
 
-Tip: Overcast caches. If order doesn’t change immediately:
+Tip: Overcast caches. If order doesn't change immediately:
 - pull to refresh inside the podcast, or
 - remove + re-add the feed.
 
@@ -241,6 +243,8 @@ Tip: Overcast caches. If order doesn’t change immediately:
             chapter_files = []
             skipped_count = 0
 
+            print("📝 Creating chapter files with custom ordering...\n")
+
             for i, chapter in enumerate(chapter_info, 1):
                 if chapter["duration"] < 60:
                     skipped_count += 1
@@ -260,9 +264,26 @@ Tip: Overcast caches. If order doesn’t change immediately:
                 subprocess.run(cmd, capture_output=True)
 
                 if os.path.exists(output_file):
+                    # ✅ SET CUSTOM ID3 TAGS WITH TRACK NUMBERING
+                    try:
+                        try:
+                            audio = ID3(output_file)
+                        except ID3NoHeaderError:
+                            audio = ID3()
+                        
+                        # Title includes track number for proper ordering in podcast apps
+                        custom_title = f"{i:02d}. {clean_title}"
+                        audio["TIT2"] = TIT2(encoding=3, text=custom_title)
+                        audio["TALB"] = TALB(encoding=3, text=f"The Economist {date_str}")
+                        audio["TPE1"] = TPE1(encoding=3, text="The Economist")
+                        audio["TRCK"] = TRCK(encoding=3, text=str(i))
+                        
+                        audio.save(output_file, v2_version=3)
+                        print(f"  ✓ {custom_title} ({chapter['duration']:.0f}s)")
+                    except Exception as e:
+                        print(f"  ⚠️  Could not set tags for {clean_title}: {e}")
+                    
                     chapter_files.append(output_file)
-
-            # ✅ NO MORE "00 - Chapter List.txt" (removed on purpose)
 
             archive_original = os.path.join(self.archive_folder, f"original_{date_str}.mp3")
             shutil.move(temp_file, archive_original)
@@ -279,7 +300,7 @@ Tip: Overcast caches. If order doesn’t change immediately:
         """
         FIXED for Overcast ordering:
 
-        - Titles begin with "01/02/03 ..." so title-sorting keeps your order.
+        - Titles begin with "01. 02. 03. ..." so title-sorting keeps your order.
         - pubDate is unique per track so date-sorting ALSO keeps your order.
           We set 01 = 23:59, 02 = 23:58, etc (same day).
           Overcast typically shows newest first => 01 appears first.
@@ -325,6 +346,7 @@ Tip: Overcast caches. If order doesn’t change immediately:
             mp3_files = sorted([f for f in os.listdir(folder_path) if f.lower().endswith(".mp3")])
 
             # We set a "base time" at 23:59 then subtract minutes by track index
+            # This ensures proper chronological ordering in podcast apps
             base_time = base_date.replace(hour=23, minute=59, second=0)
 
             for idx, mp3_file in enumerate(mp3_files):
@@ -340,8 +362,8 @@ Tip: Overcast caches. If order doesn’t change immediately:
                     track = "00"
                     title_part = os.path.splitext(mp3_file)[0]
 
-                # ✅ Title begins with track number to preserve ordering
-                full_title = f"{date_part} - {track} - {title_part}"
+                # ✅ Title format that maintains ordering: "01. Title (Date)"
+                full_title = f"{track}. {title_part} ({date_part})"
 
                 file_url = f"{self.site_base}/{quote(folder)}/{quote(mp3_file)}"
 
