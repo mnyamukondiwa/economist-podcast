@@ -6,479 +6,520 @@ import shutil
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import re
+from pathlib import Path
+from urllib.parse import quote
 
 class EconomistPodcastMaster:
-    """Complete end-to-end Economist podcast processor"""
-    
-    def __init__(self, base_folder, github_username, github_repo):
-        self.base_folder = base_folder
+    """
+    End-to-end Economist podcast processor (local):
+
+    - Splits a downloaded Economist MP3 into chapter MP3s (ffmpeg copy)
+    - Applies your custom chapter ordering
+    - Skips chapters < 60s
+    - Stores original in Archive/ (ignored by git)
+    - Generates feed.xml for Overcast (GitHub Pages URLs)
+    - Commits & pushes to GitHub (safe push by default)
+
+    IMPORTANT:
+    - This runs locally on your laptop. GitHub Actions is separate.
+    """
+
+    def __init__(self, base_folder: str, github_username: str, github_repo: str, branch: str = "main"):
+        self.base_folder = os.path.abspath(base_folder)
         self.github_username = github_username
         self.github_repo = github_repo
-        self.archive_folder = os.path.join(base_folder, 'Archive')
-        self.feed_url = f"https://{github_username}.github.io/{github_repo}/feed.xml"
-        
-        os.makedirs(self.archive_folder, exist_ok=True)
-        
-        # Create .gitignore on startup to exclude Archive
-        self.create_gitignore()
-    
-    def create_gitignore(self):
-        """Create .gitignore to exclude Archive folder and large files"""
-        gitignore_path = os.path.join(self.base_folder, '.gitignore')
-        gitignore_content = """# Exclude Archive folder (contains large original MP3s)
-Archive/
+        self.branch = branch
 
-# Exclude any original MP3 files
-original*.mp3
-"""
-        with open(gitignore_path, 'w', encoding='utf-8') as f:
-            f.write(gitignore_content)
-    
-    def cleanup_existing_episodes(self):
-        """Reprocess existing episodes to fix filenames if needed"""
-        print(f"\n{'='*70}")
-        print(f"🔧 Checking for episodes that need filename cleanup...")
-        print(f"{'='*70}\n")
-        
-        episode_folders = []
-        for item in os.listdir(self.base_folder):
-            item_path = os.path.join(self.base_folder, item)
-            if os.path.isdir(item_path) and item.startswith('Economist_'):
-                episode_folders.append(item)
-        
-        if not episode_folders:
-            print("  ✓ No existing episodes to check\n")
-            return
-        
-        for folder in episode_folders:
-            folder_path = os.path.join(self.base_folder, folder)
-            
-            # Check if any files have old numbering (e.g., "01 - 002 The world...")
-            needs_cleanup = False
-            for file in os.listdir(folder_path):
-                if file.endswith('.mp3') and re.search(r'\d{2}\s+-\s+\d{3}', file):
-                    needs_cleanup = True
-                    break
-            
-            if needs_cleanup:
-                print(f"  🔧 Cleaning up: {folder}")
-                
-                # Find the original in Archive
-                date_part = folder.replace('Economist_', '')
-                archive_original = os.path.join(self.archive_folder, f"original_{date_part}.mp3")
-                
-                if os.path.exists(archive_original):
-                    # Move original back temporarily
-                    temp_original = os.path.join(self.base_folder, f"temp_original_{date_part}.mp3")
-                    shutil.copy2(archive_original, temp_original)
-                    
-                    # Delete old episode folder
-                    shutil.rmtree(folder_path)
-                    
-                    # Reprocess with clean filenames
-                    self.split_economist_file(temp_original)
-                    
-                    print(f"  ✅ Cleaned up: {folder}\n")
-                else:
-                    print(f"  ⚠️  Cannot clean {folder} - original not found in Archive\n")
-            else:
-                print(f"  ✓ Already clean: {folder}")
-        
-        print()
-    
+        self.archive_folder = os.path.join(self.base_folder, "Archive")
+        os.makedirs(self.archive_folder, exist_ok=True)
+
+        # GitHub Pages base + feed URL (this is what Overcast subscribes to)
+        self.site_base = f"https://{github_username}.github.io/{github_repo}"
+        self.feed_url = f"{self.site_base}/feed.xml"
+
+        # Create/merge .gitignore so Archive isn't committed
+        self.ensure_gitignore()
+
+    # ---------------------------
+    # Setup helpers
+    # ---------------------------
+    def ensure_gitignore(self):
+        """
+        Ensure Archive/ is ignored.
+        Does NOT overwrite an existing .gitignore (your previous version overwrote every run).
+        """
+        gitignore_path = os.path.join(self.base_folder, ".gitignore")
+        required_lines = [
+            "# --- Economist podcast automation ---",
+            "Archive/",
+            "temp_original_*.mp3",
+            "original*.mp3",
+            "*.DS_Store",
+        ]
+
+        if os.path.exists(gitignore_path):
+            existing = Path(gitignore_path).read_text(encoding="utf-8", errors="ignore").splitlines()
+            existing_set = set(line.strip() for line in existing)
+            to_add = [line for line in required_lines if line not in existing_set]
+            if to_add:
+                with open(gitignore_path, "a", encoding="utf-8") as f:
+                    f.write("\n\n" + "\n".join(to_add) + "\n")
+        else:
+            with open(gitignore_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(required_lines) + "\n")
+
+    # ---------------------------
+    # Main workflow
+    # ---------------------------
     def run_complete_workflow(self):
-        """Main workflow: Split → Generate RSS → Git Push"""
-        
         print(f"""
 {'='*70}
 🎙️  ECONOMIST PODCAST AUTOMATION
 {'='*70}
 
 📂 Folder: {self.base_folder}
-📡 Feed: {self.feed_url}
+🌐 GitHub Pages base: {self.site_base}
+📡 Feed URL (Overcast): {self.feed_url}
 
-Starting complete workflow...
+Starting workflow...
 {'='*70}
 """)
-        
+
         # Step 0: Cleanup existing episodes if needed
         self.cleanup_existing_episodes()
-        
-        # Step 1: Find and process MP3 files
-        mp3_files = self.find_mp3_files()
-        
+
+        # Step 1: Find and process MP3 files in base folder (new downloads)
+        mp3_files = self.find_new_mp3_files()
+
         if mp3_files:
             print(f"\n✓ Found {len(mp3_files)} MP3 file(s) to process\n")
             for mp3_file in mp3_files:
                 self.split_economist_file(mp3_file)
-            
-            # Archive old episodes
-            self.archive_old_episodes()
         else:
             print("\n✓ No new MP3 files to process")
-        
-        # Step 2: Generate RSS feed
+
+        # Step 2: Generate RSS feed from repo-visible episode folders
         self.generate_rss_feed()
-        
+
         # Step 3: Git push
         self.git_push()
-        
+
         print(f"""
 {'='*70}
-✅ COMPLETE! Your podcast is live!
+✅ COMPLETE! Your podcast is live (or updated)
 {'='*70}
 
 📡 Feed URL: {self.feed_url}
-🎧 New episodes will appear in Overcast within 30 minutes
+🎧 Overcast may cache—pull to refresh or re-add the feed URL if needed.
 
 {'='*70}
 """)
-    
-    def find_mp3_files(self):
-        """Find all MP3 files in the base folder"""
+
+    # ---------------------------
+    # Discovery / cleanup
+    # ---------------------------
+    def find_new_mp3_files(self):
+        """
+        Find MP3 files in the base folder that are NOT:
+        - temp_* files
+        - already inside an Economist_YYYY-MM-DD folder
+        - inside Archive
+        """
         mp3_files = []
         for file in os.listdir(self.base_folder):
             full_path = os.path.join(self.base_folder, file)
-            # Skip temp files
-            if file.lower().endswith('.mp3') and os.path.isfile(full_path) and not file.startswith('temp_'):
-                mp3_files.append(full_path)
+            if not (os.path.isfile(full_path) and file.lower().endswith(".mp3")):
+                continue
+            if file.startswith("temp_"):
+                continue
+            # ignore if user accidentally drops files in Archive
+            if os.path.commonpath([full_path, self.archive_folder]) == self.archive_folder:
+                continue
+            mp3_files.append(full_path)
         return mp3_files
-    
-    def split_economist_file(self, input_file):
-        """Split MP3 file by chapters"""
-        
+
+    def cleanup_existing_episodes(self):
+        """
+        Reprocess existing episodes to fix filenames if they contain old numbering patterns like:
+        "01 - 002 The world..."
+        """
+        print(f"\n{'='*70}")
+        print("🔧 Checking for episodes that need filename cleanup...")
+        print(f"{'='*70}\n")
+
+        episode_folders = []
+        for item in os.listdir(self.base_folder):
+            item_path = os.path.join(self.base_folder, item)
+            if os.path.isdir(item_path) and item.startswith("Economist_"):
+                episode_folders.append(item)
+
+        if not episode_folders:
+            print("  ✓ No existing episodes to check\n")
+            return
+
+        for folder in sorted(episode_folders):
+            folder_path = os.path.join(self.base_folder, folder)
+
+            needs_cleanup = False
+            for file in os.listdir(folder_path):
+                if file.endswith(".mp3") and re.search(r"\d{2}\s+-\s+\d{3}", file):
+                    needs_cleanup = True
+                    break
+
+            if not needs_cleanup:
+                print(f"  ✓ Already clean: {folder}")
+                continue
+
+            print(f"  🔧 Cleaning up: {folder}")
+
+            date_part = folder.replace("Economist_", "")
+            archive_original = os.path.join(self.archive_folder, f"original_{date_part}.mp3")
+
+            if not os.path.exists(archive_original):
+                print(f"  ⚠️  Cannot clean {folder} - original not found in Archive\n")
+                continue
+
+            # Move original back temporarily
+            temp_original = os.path.join(self.base_folder, f"temp_original_{date_part}.mp3")
+            shutil.copy2(archive_original, temp_original)
+
+            # Delete old episode folder
+            shutil.rmtree(folder_path)
+
+            # Reprocess with clean filenames
+            self.split_economist_file(temp_original)
+
+            # Cleanup temp original if split moved it
+            if os.path.exists(temp_original):
+                try:
+                    os.remove(temp_original)
+                except OSError:
+                    pass
+
+            print(f"  ✅ Cleaned up: {folder}\n")
+
+        print()
+
+    # ---------------------------
+    # Splitting logic
+    # ---------------------------
+    def split_economist_file(self, input_file: str):
+        """
+        Split MP3 file by chapters using ffmpeg.
+
+        Folder naming:
+        - If input filename contains YYYY-MM-DD, we use that date.
+        - Else we use today's date.
+        """
         try:
-            date_str = datetime.now().strftime("%Y-%m-%d")
+            input_basename = os.path.basename(input_file)
+
+            # Try to detect a date in the filename
+            m = re.search(r"(\d{4}-\d{2}-\d{2})", input_basename)
+            date_str = m.group(1) if m else datetime.now().strftime("%Y-%m-%d")
+
             output_folder = os.path.join(self.base_folder, f"Economist_{date_str}")
             os.makedirs(output_folder, exist_ok=True)
-            
+
             print(f"{'='*70}")
-            print(f"🎧 Processing: {os.path.basename(input_file)}")
+            print(f"🎧 Processing: {input_basename}")
             print(f"📁 Output: Economist_{date_str}")
             print(f"{'='*70}\n")
-            
-            file_size = os.path.getsize(input_file) / (1024*1024)
-            print(f"📊 File size: {file_size:.1f} MB")
-            
-            # Move to output folder
+
+            file_size_mb = os.path.getsize(input_file) / (1024 * 1024)
+            print(f"📊 File size: {file_size_mb:.1f} MB")
+
+            # Move the input MP3 into the output folder as a temp original
             temp_file = os.path.join(output_folder, "original.mp3")
-            print(f"📦 Moving file to output folder...")
+            print("📦 Moving file to output folder...")
             shutil.move(input_file, temp_file)
-            
-            # Read chapters
-            print(f"🔍 Reading chapter information...")
+
+            print("🔍 Reading chapter information...")
             tags = ID3(temp_file)
-            chapters = [tag for tag in tags.keys() if tag.startswith('CHAP')]
-            
+            chapters = [tag for tag in tags.keys() if tag.startswith("CHAP")]
+
             if not chapters:
-                print(f"⚠️  No chapters found - keeping original file")
-                final_name = os.path.join(output_folder, os.path.basename(input_file))
+                print("⚠️  No chapters found - keeping original file as-is")
+                final_name = os.path.join(output_folder, input_basename)
                 shutil.move(temp_file, final_name)
+
+                # Also archive that "original" copy (optional) — here we keep only the final in folder
                 return
-            
+
             print(f"✓ Found {len(chapters)} chapters\n")
-            
-            # Extract and sort chapter info
+
+            # Extract chapter info
             chapter_info = []
             for chap_id in chapters:
                 chap = tags[chap_id]
                 start_time = chap.start_time / 1000
                 end_time = chap.end_time / 1000
                 duration = end_time - start_time
-                
+
                 title = f"Chapter_{len(chapter_info) + 1}"
-                if hasattr(chap, 'sub_frames'):
+                if hasattr(chap, "sub_frames"):
                     for frame in chap.sub_frames.values():
-                        if hasattr(frame, 'text'):
+                        if hasattr(frame, "text") and frame.text:
                             title = str(frame.text[0])
-                            title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()[:50]
+                            # keep basic safe filename characters (you can broaden if you want)
+                            title = "".join(c for c in title if c.isalnum() or c in (" ", "-", "_", "&", "'", ",")).strip()
+                            title = title[:80]
                             break
-                
-                chapter_info.append({
-                    'start_time': start_time,
-                    'duration': duration,
-                    'title': title
-                })
-            
-            # Custom sorting logic
+
+                chapter_info.append(
+                    {"start_time": start_time, "duration": duration, "title": title}
+                )
+
+            # Your custom sorting logic
             def get_sort_priority(chapter):
-                """Determine sort priority and duration for sorting"""
-                title_lower = chapter['title'].lower()
-                duration = chapter['duration']
-                
-                # Priority 1: The World This Week (always first)
-                if 'world this week' in title_lower:
+                title_lower = chapter["title"].lower()
+                duration = chapter["duration"]
+
+                if "world this week" in title_lower:
                     return (1, 0)
-                
-                # Priority 2: Letters (always second)
-                if 'letter' in title_lower:
+                if "letter" in title_lower:
                     return (2, 0)
-                
-                # Priority 3: Business (shortest first within Business)
-                if 'business' in title_lower:
+                if "business" in title_lower:
                     return (3, duration)
-                
-                # Priority 4: Finance & Economics (shortest first within Finance)
-                if 'finance' in title_lower or 'economic' in title_lower:
+                if "finance" in title_lower or "economic" in title_lower:
                     return (4, duration)
-                
-                # Priority 6: Briefing (always last)
-                if 'briefing' in title_lower:
+                if "briefing" in title_lower:
                     return (6, 999999)
-                
-                # Priority 5: Everything else (shortest first)
                 return (5, duration)
-            
+
             chapter_info.sort(key=get_sort_priority)
-            
-            print(f"📊 Custom sort order applied:")
-            print(f"   1. The World This Week (first)")
-            print(f"   2. Letters (second)")
-            print(f"   3. Business (shortest first)")
-            print(f"   4. Finance & Economics (shortest first)")
-            print(f"   5. Everything Else (shortest first)")
-            print(f"   6. Briefing (last)\n")
-            
-            # Split chapters
+
+            print("📊 Custom sort order applied:")
+            print("   1. The World This Week (first)")
+            print("   2. Letters (second)")
+            print("   3. Business (shortest first)")
+            print("   4. Finance & Economics (shortest first)")
+            print("   5. Everything Else (shortest first)")
+            print("   6. Briefing (last)\n")
+
             chapter_files = []
-            deleted_count = 0
-            
+            skipped_count = 0
+
             for i, chapter in enumerate(chapter_info, 1):
-                # Skip chapters shorter than 1 minute
-                if chapter['duration'] < 60:
+                if chapter["duration"] < 60:
                     print(f"  {i:02d}. {chapter['title']} ({chapter['duration']:.1f}s) ⏭️  SKIPPED (too short)")
-                    deleted_count += 1
+                    skipped_count += 1
                     continue
-                
-                # Remove original chapter numbers from title for clean filenames
-                clean_title = re.sub(r'^\d+\s+', '', chapter['title'])
-                
+
+                # Remove leading numbers from chapter title for clean filename
+                clean_title = re.sub(r"^\d+\s+", "", chapter["title"]).strip()
+
                 output_file = os.path.join(output_folder, f"{i:02d} - {clean_title}.mp3")
-                
+
                 cmd = [
-                    'ffmpeg', '-i', temp_file,
-                    '-ss', str(chapter['start_time']),
-                    '-t', str(chapter['duration']),
-                    '-acodec', 'copy',
-                    '-loglevel', 'quiet',
-                    '-y', output_file
+                    "ffmpeg",
+                    "-i", temp_file,
+                    "-ss", str(chapter["start_time"]),
+                    "-t", str(chapter["duration"]),
+                    "-acodec", "copy",
+                    "-loglevel", "error",
+                    "-y", output_file
                 ]
-                
+
                 subprocess.run(cmd, capture_output=True)
-                
+
                 if os.path.exists(output_file):
-                    chapter_size = os.path.getsize(output_file) / (1024*1024)
+                    chapter_size_mb = os.path.getsize(output_file) / (1024 * 1024)
                     chapter_files.append(output_file)
-                    print(f"  {i:02d}. {clean_title} ({chapter['duration']/60:.1f} min, {chapter_size:.1f} MB) ✓")
-            
-            # Create chapter list
+                    print(f"  {i:02d}. {clean_title} ({chapter['duration']/60:.1f} min, {chapter_size_mb:.1f} MB) ✓")
+
+            # Chapter list
             summary_file = os.path.join(output_folder, "00 - Chapter List.txt")
-            with open(summary_file, 'w', encoding='utf-8') as f:
-                f.write(f"The Economist Weekly Edition\n")
+            with open(summary_file, "w", encoding="utf-8") as f:
+                f.write("The Economist Weekly Edition\n")
                 f.write(f"Processed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"="*60 + "\n\n")
+                f.write("=" * 60 + "\n\n")
                 for file in chapter_files:
                     f.write(f"{os.path.basename(file)}\n")
-            
-            # Move original MP3 to Archive immediately
+
+            # Archive original MP3 immediately (kept out of git)
             archive_original = os.path.join(self.archive_folder, f"original_{date_str}.mp3")
             shutil.move(temp_file, archive_original)
             print(f"\n📦 Moved original MP3 to Archive: original_{date_str}.mp3")
-            print(f"💾 Original size: {file_size:.1f} MB (excluded from GitHub)")
-            
+            print(f"💾 Original size: {file_size_mb:.1f} MB (excluded from GitHub)")
+
             print(f"\n✅ Created {len(chapter_files)} chapter files")
-            if deleted_count > 0:
-                print(f"⏭️  Skipped {deleted_count} chapter(s) shorter than 1 minute")
+            if skipped_count:
+                print(f"⏭️  Skipped {skipped_count} chapter(s) shorter than 1 minute")
             print()
-            
+
         except Exception as e:
             print(f"\n❌ Error processing file: {e}")
             import traceback
             traceback.print_exc()
-    
-    def archive_old_episodes(self):
-        """Archive old episode folders, keeping only the newest"""
-        print(f"{'='*70}")
-        print(f"🗂️  Archiving old episodes...")
-        print(f"{'='*70}\n")
-        
-        episode_folders = []
-        for item in os.listdir(self.base_folder):
-            item_path = os.path.join(self.base_folder, item)
-            if os.path.isdir(item_path) and item.startswith('Economist_') and item != 'Archive':
-                episode_folders.append(item)
-        
-        episode_folders.sort(reverse=True)
-        
-        if len(episode_folders) > 1:
-            for folder in episode_folders[1:]:
-                src = os.path.join(self.base_folder, folder)
-                dst = os.path.join(self.archive_folder, folder)
-                
-                try:
-                    if os.path.exists(dst):
-                        shutil.rmtree(dst)
-                    shutil.move(src, dst)
-                    print(f"  📦 Archived: {folder}")
-                except Exception as e:
-                    print(f"  ⚠️  Could not archive {folder}: {e}")
-            print()
-        else:
-            print(f"  ✓ No old episodes to archive\n")
-    
+
+    # ---------------------------
+    # RSS generation (FIXED)
+    # ---------------------------
     def generate_rss_feed(self):
-        """Generate podcast RSS feed"""
-        
+        """
+        Generate feed.xml from all Economist_YYYY-MM-DD folders IN THE REPO.
+        - Excludes Archive/
+        - Uses GitHub Pages URLs (cleaner than raw.githubusercontent.com)
+        - Adds guid + pubDate
+        - Orders newest date first; within date, orders by filename (01..)
+        """
         print(f"{'='*70}")
-        print(f"📡 Generating RSS feed...")
+        print("📡 Generating RSS feed...")
         print(f"{'='*70}\n")
-        
-        # Create RSS structure
-        rss = ET.Element('rss', {
-            'version': '2.0',
-            'xmlns:itunes': 'http://www.itunes.com/dtds/podcast-1.0.dtd',
-            'xmlns:content': 'http://purl.org/rss/1.0/modules/content/'
+
+        rss = ET.Element("rss", {
+            "version": "2.0",
+            "xmlns:itunes": "http://www.itunes.com/dtds/podcast-1.0.dtd",
         })
-        
-        channel = ET.SubElement(rss, 'channel')
-        
-        # Podcast metadata - make it clearly personal/custom
-        ET.SubElement(channel, 'title').text = 'My Economist Chapters'
-        ET.SubElement(channel, 'description').text = 'Personal custom-sorted chapters from The Economist Weekly Edition'
-        ET.SubElement(channel, 'language').text = 'en-us'
-        ET.SubElement(channel, 'link').text = self.feed_url
-        
-        # iTunes metadata
-        ET.SubElement(channel, '{http://www.itunes.com/dtds/podcast-1.0.dtd}author').text = 'Personal Feed'
-        ET.SubElement(channel, '{http://www.itunes.com/dtds/podcast-1.0.dtd}explicit').text = 'no'
-        
-        # Find all episode folders
+        channel = ET.SubElement(rss, "channel")
+
+        ET.SubElement(channel, "title").text = "My Economist Chapters"
+        ET.SubElement(channel, "description").text = "Personal custom-sorted chapters from The Economist Weekly Edition"
+        ET.SubElement(channel, "language").text = "en-us"
+        ET.SubElement(channel, "link").text = self.feed_url
+        ET.SubElement(channel, "{http://www.itunes.com/dtds/podcast-1.0.dtd}author").text = "Personal Feed"
+        ET.SubElement(channel, "{http://www.itunes.com/dtds/podcast-1.0.dtd}explicit").text = "no"
+
+        # Find episode folders
         episode_folders = []
         for item in os.listdir(self.base_folder):
             item_path = os.path.join(self.base_folder, item)
-            if os.path.isdir(item_path) and item.startswith('Economist_'):
+            if os.path.isdir(item_path) and item.startswith("Economist_") and item != "Archive":
                 episode_folders.append(item)
-        
+
+        # newest first
         episode_folders.sort(reverse=True)
-        
-        # Add each chapter as an item
+
         item_count = 0
         for folder in episode_folders:
             folder_path = os.path.join(self.base_folder, folder)
-            
-            mp3_files = [f for f in os.listdir(folder_path) if f.endswith('.mp3')]
-            mp3_files.sort()
-            
+
+            # Only include mp3s, sorted (01..)
+            mp3_files = sorted([f for f in os.listdir(folder_path) if f.lower().endswith(".mp3")])
+
+            date_part = folder.replace("Economist_", "")
+            # pubDate based on folder date (fallback to now)
+            try:
+                folder_date = datetime.strptime(date_part, "%Y-%m-%d")
+                pub_date = folder_date.strftime("%a, %d %b %Y 12:00:00 GMT")
+            except Exception:
+                pub_date = datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+
             for mp3_file in mp3_files:
                 mp3_path = os.path.join(folder_path, mp3_file)
                 file_size = os.path.getsize(mp3_path)
-                
-                item = ET.SubElement(channel, 'item')
-                
-                date_part = folder.replace('Economist_', '')
-                title_part = mp3_file.replace('.mp3', '').split(' - ', 1)[-1]
-                
-                # Title is already clean from filenames now
+
+                title_part = os.path.splitext(mp3_file)[0].split(" - ", 1)[-1]
                 full_title = f"{date_part} - {title_part}"
-                
-                ET.SubElement(item, 'title').text = full_title
-                ET.SubElement(item, 'description').text = f"The Economist Weekly Edition - {title_part}"
-                
-                safe_folder = folder.replace(' ', '%20')
-                safe_file = mp3_file.replace(' ', '%20')
-                file_url = f"https://{self.github_username}.github.io/{self.github_repo}/{safe_folder}/{safe_file}"
-                
-                ET.SubElement(item, 'enclosure', {
-                    'url': file_url,
-                    'length': str(file_size),
-                    'type': 'audio/mpeg'
+
+                # GitHub Pages URL: encode each path component safely
+                file_url = f"{self.site_base}/{quote(folder)}/{quote(mp3_file)}"
+
+                item = ET.SubElement(channel, "item")
+                ET.SubElement(item, "title").text = full_title
+                ET.SubElement(item, "description").text = f"The Economist Weekly Edition - {title_part}"
+                ET.SubElement(item, "guid").text = file_url
+                ET.SubElement(item, "pubDate").text = pub_date
+                ET.SubElement(item, "enclosure", {
+                    "url": file_url,
+                    "length": str(file_size),
+                    "type": "audio/mpeg",
                 })
-                
-                ET.SubElement(item, 'guid').text = file_url
-                
-                try:
-                    folder_date = datetime.strptime(date_part, "%Y-%m-%d")
-                    pub_date = folder_date.strftime('%a, %d %b %Y 12:00:00 GMT')
-                except:
-                    pub_date = datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
-                
-                ET.SubElement(item, 'pubDate').text = pub_date
-                
+
                 item_count += 1
                 print(f"  ✓ Added: {full_title}")
-        
-        # Write XML
+
         xml_str = minidom.parseString(ET.tostring(rss)).toprettyxml(indent="  ")
-        feed_path = os.path.join(self.base_folder, 'feed.xml')
-        
-        with open(feed_path, 'w', encoding='utf-8') as f:
+        feed_path = os.path.join(self.base_folder, "feed.xml")
+        with open(feed_path, "w", encoding="utf-8") as f:
             f.write(xml_str)
-        
-        print(f"\n✅ RSS feed created: feed.xml")
+
+        print(f"\n✅ RSS feed created: {feed_path}")
         print(f"📊 Total items in feed: {item_count}\n")
-    
+
+    # ---------------------------
+    # Git push (FIXED / SAFER)
+    # ---------------------------
     def git_push(self):
-        """Commit and push to GitHub"""
-        
+        """
+        Commit & push changes.
+
+        FIXES vs your old version:
+        - Does NOT delete/rewire git history by default (no -f push).
+        - Does NOT try to 'git rm --cached' every episode folder every time.
+        - Only stages normal changes and pushes.
+
+        If you previously force-pushed and want to keep doing that, you can set force=True below.
+        """
+        self._git_push_impl(force=False)
+
+    def _git_push_impl(self, force: bool = False):
         print(f"{'='*70}")
-        print(f"📤 Pushing to GitHub...")
+        print("📤 Pushing to GitHub...")
         print(f"{'='*70}\n")
-        
+
         try:
             os.chdir(self.base_folder)
-            
-            # Remove all old episode folders from git tracking
-            print("  🧹 Cleaning up old files from git...")
-            episode_folders = [f for f in os.listdir(self.base_folder) 
-                             if os.path.isdir(os.path.join(self.base_folder, f)) 
-                             and f.startswith('Economist_')]
-            
-            for folder in episode_folders:
-                subprocess.run(['git', 'rm', '-rf', '--cached', folder], 
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # Remove Archive from tracking if it exists
-            subprocess.run(['git', 'rm', '-r', '--cached', 'Archive'], 
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # Git add (will add back episode folders with clean filenames)
-            print("  📝 Staging clean files...")
-            subprocess.run(['git', 'add', '.'], check=True, capture_output=True)
-            
-            # Git commit
-            commit_msg = f"Clean files - Economist episode {datetime.now().strftime('%Y-%m-%d')}"
-            print(f"  💾 Committing: {commit_msg}")
-            result = subprocess.run(['git', 'commit', '-m', commit_msg], 
-                                  capture_output=True, text=True)
-            
-            if "nothing to commit" in result.stdout:
+
+            # Basic sanity: ensure it's a git repo
+            subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], check=True, capture_output=True)
+
+            # Stage everything except ignored (Archive)
+            print("  📝 Staging changes...")
+            subprocess.run(["git", "add", "-A"], check=True, capture_output=True)
+
+            # Commit if needed
+            commit_msg = f"Update Economist chapters {datetime.now().strftime('%Y-%m-%d')}"
+            result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, check=True)
+            if not result.stdout.strip():
                 print("  ✓ No changes to commit")
             else:
+                print(f"  💾 Committing: {commit_msg}")
+                subprocess.run(["git", "commit", "-m", commit_msg], check=True, capture_output=True)
                 print("  ✓ Committed successfully")
-            
-            # Git push with force to override old files
-            print("  🚀 Force pushing to GitHub (cleaning old files)...")
-            subprocess.run(['git', 'push', '-f'], check=True, capture_output=True)
+
+            # Push
+            print("  🚀 Pushing...")
+            if force:
+                subprocess.run(["git", "push", "-f"], check=True, capture_output=True)
+            else:
+                subprocess.run(["git", "push"], check=True, capture_output=True)
             print("  ✅ Pushed successfully!\n")
-            
+
         except subprocess.CalledProcessError as e:
-            print(f"  ⚠️  Git error: {e}")
-            print(f"\nTry running manually:")
-            print(f"  git add .")
-            print(f"  git commit -m 'Clean files'")
-            print(f"  git push -f\n")
+            print("  ❌ Git command failed.")
+            # Show stderr if available
+            try:
+                stderr = e.stderr.decode("utf-8", errors="ignore") if isinstance(e.stderr, (bytes, bytearray)) else (e.stderr or "")
+                stdout = e.stdout.decode("utf-8", errors="ignore") if isinstance(e.stdout, (bytes, bytearray)) else (e.stdout or "")
+                if stdout:
+                    print("\n--- stdout ---\n" + stdout)
+                if stderr:
+                    print("\n--- stderr ---\n" + stderr)
+            except Exception:
+                pass
+            print("\nCommon fix:")
+            print("  git pull --rebase")
+            print("  git push\n")
         except Exception as e:
             print(f"  ❌ Error: {e}\n")
 
+
 def main():
-    """Main entry point"""
-    
+    """
+    ✅ Update these two values to match your current repo.
+    Your screenshots show the repo is: economist-podcast
+    """
     BASE_FOLDER = os.path.dirname(os.path.abspath(__file__))
+
     GITHUB_USERNAME = "mnyamukondiwa"
-    GITHUB_REPO = "economist-chapters"  # NEW REPO NAME
-    
-    processor = EconomistPodcastMaster(BASE_FOLDER, GITHUB_USERNAME, GITHUB_REPO)
+    GITHUB_REPO = "economist-podcast"   # <-- FIXED to match your actual repo
+    BRANCH = "main"
+
+    processor = EconomistPodcastMaster(BASE_FOLDER, GITHUB_USERNAME, GITHUB_REPO, branch=BRANCH)
     processor.run_complete_workflow()
+
 
 if __name__ == "__main__":
     main()

@@ -3,3 +3,8 @@ Archive/
 
 # Exclude any original MP3 files
 original*.mp3
+
+
+# --- Economist podcast automation ---
+temp_original_*.mp3
+*.DS_Store
