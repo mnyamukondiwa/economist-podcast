@@ -317,6 +317,11 @@ Starting complete workflow...
                 
                 date_part = folder.replace('Economist_', '')
                 title_part = mp3_file.replace('.mp3', '').split(' - ', 1)[-1]
+                
+                # Remove leading numbers (e.g., "012 Briefing" becomes "Briefing")
+                import re
+                title_part = re.sub(r'^\d+\s+', '', title_part)
+                
                 full_title = f"{date_part} - {title_part}"
                 
                 ET.SubElement(item, 'title').text = full_title
