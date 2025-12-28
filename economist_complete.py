@@ -479,8 +479,6 @@ def main():
     
     processor = EconomistPodcastMaster(BASE_FOLDER, GITHUB_USERNAME, GITHUB_REPO)
     processor.run_complete_workflow()
-    
-    input("\nPress Enter to exit...")
 
 if __name__ == "__main__":
     main()
