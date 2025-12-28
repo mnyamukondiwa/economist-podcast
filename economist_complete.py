@@ -5,6 +5,7 @@ from mutagen.id3 import ID3
 import shutil
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
+import re
 
 class EconomistPodcastMaster:
     """Complete end-to-end Economist podcast processor"""
@@ -33,6 +34,58 @@ original*.mp3
         with open(gitignore_path, 'w', encoding='utf-8') as f:
             f.write(gitignore_content)
     
+    def cleanup_existing_episodes(self):
+        """Reprocess existing episodes to fix filenames if needed"""
+        print(f"\n{'='*70}")
+        print(f"🔧 Checking for episodes that need filename cleanup...")
+        print(f"{'='*70}\n")
+        
+        episode_folders = []
+        for item in os.listdir(self.base_folder):
+            item_path = os.path.join(self.base_folder, item)
+            if os.path.isdir(item_path) and item.startswith('Economist_'):
+                episode_folders.append(item)
+        
+        if not episode_folders:
+            print("  ✓ No existing episodes to check\n")
+            return
+        
+        for folder in episode_folders:
+            folder_path = os.path.join(self.base_folder, folder)
+            
+            # Check if any files have old numbering (e.g., "01 - 002 The world...")
+            needs_cleanup = False
+            for file in os.listdir(folder_path):
+                if file.endswith('.mp3') and re.search(r'\d{2}\s+-\s+\d{3}', file):
+                    needs_cleanup = True
+                    break
+            
+            if needs_cleanup:
+                print(f"  🔧 Cleaning up: {folder}")
+                
+                # Find the original in Archive
+                date_part = folder.replace('Economist_', '')
+                archive_original = os.path.join(self.archive_folder, f"original_{date_part}.mp3")
+                
+                if os.path.exists(archive_original):
+                    # Move original back temporarily
+                    temp_original = os.path.join(self.base_folder, f"temp_original_{date_part}.mp3")
+                    shutil.copy2(archive_original, temp_original)
+                    
+                    # Delete old episode folder
+                    shutil.rmtree(folder_path)
+                    
+                    # Reprocess with clean filenames
+                    self.split_economist_file(temp_original)
+                    
+                    print(f"  ✅ Cleaned up: {folder}\n")
+                else:
+                    print(f"  ⚠️  Cannot clean {folder} - original not found in Archive\n")
+            else:
+                print(f"  ✓ Already clean: {folder}")
+        
+        print()
+    
     def run_complete_workflow(self):
         """Main workflow: Split → Generate RSS → Git Push"""
         
@@ -47,6 +100,9 @@ original*.mp3
 Starting complete workflow...
 {'='*70}
 """)
+        
+        # Step 0: Cleanup existing episodes if needed
+        self.cleanup_existing_episodes()
         
         # Step 1: Find and process MP3 files
         mp3_files = self.find_mp3_files()
@@ -83,7 +139,8 @@ Starting complete workflow...
         mp3_files = []
         for file in os.listdir(self.base_folder):
             full_path = os.path.join(self.base_folder, file)
-            if file.lower().endswith('.mp3') and os.path.isfile(full_path):
+            # Skip temp files
+            if file.lower().endswith('.mp3') and os.path.isfile(full_path) and not file.startswith('temp_'):
                 mp3_files.append(full_path)
         return mp3_files
     
@@ -193,7 +250,10 @@ Starting complete workflow...
                     deleted_count += 1
                     continue
                 
-                output_file = os.path.join(output_folder, f"{i:02d} - {chapter['title']}.mp3")
+                # Remove original chapter numbers from title for clean filenames
+                clean_title = re.sub(r'^\d+\s+', '', chapter['title'])
+                
+                output_file = os.path.join(output_folder, f"{i:02d} - {clean_title}.mp3")
                 
                 cmd = [
                     'ffmpeg', '-i', temp_file,
@@ -209,7 +269,7 @@ Starting complete workflow...
                 if os.path.exists(output_file):
                     chapter_size = os.path.getsize(output_file) / (1024*1024)
                     chapter_files.append(output_file)
-                    print(f"  {i:02d}. {chapter['title']} ({chapter['duration']/60:.1f} min, {chapter_size:.1f} MB) ✓")
+                    print(f"  {i:02d}. {clean_title} ({chapter['duration']/60:.1f} min, {chapter_size:.1f} MB) ✓")
             
             # Create chapter list
             summary_file = os.path.join(output_folder, "00 - Chapter List.txt")
@@ -318,10 +378,7 @@ Starting complete workflow...
                 date_part = folder.replace('Economist_', '')
                 title_part = mp3_file.replace('.mp3', '').split(' - ', 1)[-1]
                 
-                # Remove leading numbers (e.g., "012 Briefing" becomes "Briefing")
-                import re
-                title_part = re.sub(r'^\d+\s+', '', title_part)
-                
+                # Title is already clean from filenames now
                 full_title = f"{date_part} - {title_part}"
                 
                 ET.SubElement(item, 'title').text = full_title
