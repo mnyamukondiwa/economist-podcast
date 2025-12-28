@@ -8,3 +8,8 @@ original*.mp3
 # --- Economist podcast automation ---
 temp_original_*.mp3
 *.DS_Store
+
+
+# Do not publish text notes / chapter lists
+**/*.txt
+**/*Chapter List*.txt
