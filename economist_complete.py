@@ -427,17 +427,26 @@ Starting complete workflow...
         try:
             os.chdir(self.base_folder)
             
-            # First, remove Archive from tracking if it exists (silently)
-            print("  🧹 Ensuring Archive is not tracked...")
+            # Remove all old episode folders from git tracking
+            print("  🧹 Cleaning up old files from git...")
+            episode_folders = [f for f in os.listdir(self.base_folder) 
+                             if os.path.isdir(os.path.join(self.base_folder, f)) 
+                             and f.startswith('Economist_')]
+            
+            for folder in episode_folders:
+                subprocess.run(['git', 'rm', '-rf', '--cached', folder], 
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            # Remove Archive from tracking if it exists
             subprocess.run(['git', 'rm', '-r', '--cached', 'Archive'], 
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
-            # Git add
-            print("  📝 Staging files...")
+            # Git add (will add back episode folders with clean filenames)
+            print("  📝 Staging clean files...")
             subprocess.run(['git', 'add', '.'], check=True, capture_output=True)
             
             # Git commit
-            commit_msg = f"Economist episode {datetime.now().strftime('%Y-%m-%d')}"
+            commit_msg = f"Clean files - Economist episode {datetime.now().strftime('%Y-%m-%d')}"
             print(f"  💾 Committing: {commit_msg}")
             result = subprocess.run(['git', 'commit', '-m', commit_msg], 
                                   capture_output=True, text=True)
@@ -447,16 +456,17 @@ Starting complete workflow...
             else:
                 print("  ✓ Committed successfully")
             
-            # Git push
-            print("  🚀 Pushing to GitHub...")
-            subprocess.run(['git', 'push'], check=True, capture_output=True)
+            # Git push with force to override old files
+            print("  🚀 Force pushing to GitHub (cleaning old files)...")
+            subprocess.run(['git', 'push', '-f'], check=True, capture_output=True)
             print("  ✅ Pushed successfully!\n")
             
         except subprocess.CalledProcessError as e:
             print(f"  ⚠️  Git error: {e}")
-            print(f"\nIf this is your first push, run these commands manually:")
-            print(f"  git remote add origin https://github.com/{self.github_username}/{self.github_repo}.git")
-            print(f"  git push -u origin main\n")
+            print(f"\nTry running manually:")
+            print(f"  git add .")
+            print(f"  git commit -m 'Clean files'")
+            print(f"  git push -f\n")
         except Exception as e:
             print(f"  ❌ Error: {e}\n")
 
