@@ -3,12 +3,13 @@ import subprocess
 from datetime import datetime, timedelta
 from mutagen.id3 import ID3
 import shutil
+
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import re
 from pathlib import Path
 from urllib.parse import quote
-
+GUID_VERSION = "v2"
 class EconomistPodcastMaster:
     """
     Local workflow:
@@ -351,7 +352,8 @@ Tip: Overcast caches. If order doesn’t change immediately:
                 item = ET.SubElement(channel, "item")
                 ET.SubElement(item, "title").text = full_title
                 ET.SubElement(item, "description").text = f"The Economist Weekly Edition - {title_part}"
-                ET.SubElement(item, "guid").text = file_url
+                ET.SubElement(item, "guid").text = f"{file_url}?{GUID_VERSION}"
+
                 ET.SubElement(item, "pubDate").text = pub_date
                 ET.SubElement(item, "enclosure", {
                     "url": file_url,
