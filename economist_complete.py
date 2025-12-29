@@ -1,25 +1,29 @@
 import os
 import subprocess
 from datetime import datetime, timedelta
-from mutagen.id3 import ID3, TIT2, TALB, TPE1, TRCK, ID3NoHeaderError
+from mutagen.id3 import (
+    ID3, TIT2, TALB, TPE1, TRCK, ID3NoHeaderError
+)
 import shutil
-
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import re
 from pathlib import Path
 from urllib.parse import quote
 
+# ✅ Permanent GUID identity reset (do NOT change again)
 GUID_VERSION = "v2"
+
 
 class EconomistPodcastMaster:
     """
     Local workflow:
     - Split Economist MP3 into chapters (ffmpeg copy)
-    - Apply your custom ordering
+    - Apply custom ordering
     - Skip < 60s
     - Archive original (ignored by git)
-    - Generate feed.xml (Overcast ordered by your 01/02/03 numbering)
+    - Rewrite ID3 tags so Overcast shows OUR names (not embedded/chapter names)
+    - Generate feed.xml with stable GUIDs and deterministic ordering
     - Commit & push
     """
 
@@ -99,9 +103,9 @@ Starting workflow...
 
 📡 Feed URL: {self.feed_url}
 
-Tip: Overcast caches. If order doesn't change immediately:
-- pull to refresh inside the podcast, or
-- remove + re-add the feed.
+IMPORTANT (Overcast):
+- If Overcast still shows old names, remove the podcast feed, force-close Overcast,
+  then re-add the feed URL.
 
 {'='*70}
 """)
@@ -170,6 +174,37 @@ Tip: Overcast caches. If order doesn't change immediately:
 
         print()
 
+    def rewrite_id3_clean(self, mp3_path: str, track_num: int, clean_title: str, date_str: str):
+        """
+        Force clean ID3 tags so podcast apps display OUR names, not embedded chapter titles.
+        This hard-deletes any existing ID3 tag and writes a fresh minimal tag set.
+        """
+        # Hard delete ID3 tag from file (not just in-memory)
+        try:
+            ID3(mp3_path).delete(mp3_path)
+        except ID3NoHeaderError:
+            pass
+        except Exception:
+            pass
+
+        audio = ID3()
+
+        # Match GitHub filenames exactly:
+        # "01 - The world this week - Politics this week"
+        title_text = f"{track_num:02d} - {clean_title}"
+
+        audio.add(TIT2(encoding=3, text=title_text))
+        audio.add(TALB(encoding=3, text=f"Economist {date_str}"))
+        audio.add(TPE1(encoding=3, text="The Economist"))
+        audio.add(TRCK(encoding=3, text=str(track_num)))
+
+        # Extra safety: remove any chapter frames if they somehow exist
+        for key in list(audio.keys()):
+            if key.startswith("CHAP") or key.startswith("CTOC"):
+                del audio[key]
+
+        audio.save(mp3_path, v2_version=3)
+
     def split_economist_file(self, input_file: str):
         try:
             input_basename = os.path.basename(input_file)
@@ -216,7 +251,9 @@ Tip: Overcast caches. If order doesn't change immediately:
                     for frame in chap.sub_frames.values():
                         if hasattr(frame, "text") and frame.text:
                             title = str(frame.text[0])
-                            title = "".join(c for c in title if c.isalnum() or c in (" ", "-", "_", "&", "'", ",")).strip()
+                            title = "".join(
+                                c for c in title if c.isalnum() or c in (" ", "-", "_", "&", "'", ",")
+                            ).strip()
                             title = title[:80]
                             break
 
@@ -243,7 +280,7 @@ Tip: Overcast caches. If order doesn't change immediately:
             chapter_files = []
             skipped_count = 0
 
-            print("📝 Creating chapter files with custom ordering...\n")
+            print("📝 Creating chapter files with custom ordering (and clean tags)...\n")
 
             for i, chapter in enumerate(chapter_info, 1):
                 if chapter["duration"] < 60:
@@ -264,32 +301,14 @@ Tip: Overcast caches. If order doesn't change immediately:
                 subprocess.run(cmd, capture_output=True)
 
                 if os.path.exists(output_file):
-                    # ✅ REMOVE ALL EXISTING TAGS (INCLUDING CHAPTERS) AND SET CLEAN ONES
                     try:
-                        try:
-                            audio = ID3(output_file)
-                            # Delete ALL existing tags including chapter metadata
-                            audio.delete()
-                        except ID3NoHeaderError:
-                            pass
-                        
-                        # Create fresh ID3 tags with no chapter data
-                        audio = ID3()
-                        
-                        # Set only the tags we want - NO CHAPTERS!
-                        custom_title = f"{i:02d}. {clean_title}"
-                        audio["TIT2"] = TIT2(encoding=3, text=custom_title)
-                        audio["TALB"] = TALB(encoding=3, text=f"The Economist {date_str}")
-                        audio["TPE1"] = TPE1(encoding=3, text="The Economist")
-                        audio["TRCK"] = TRCK(encoding=3, text=str(i))
-                        
-                        audio.save(output_file, v2_version=3)
-                        print(f"  ✓ {custom_title} ({chapter['duration']:.0f}s)")
+                        self.rewrite_id3_clean(output_file, i, clean_title, date_str)
+                        print(f"  ✓ {i:02d} - {clean_title} ({chapter['duration']:.0f}s)")
                     except Exception as e:
                         print(f"  ⚠️  Could not set tags for {clean_title}: {e}")
-                    
                     chapter_files.append(output_file)
 
+            # Archive original
             archive_original = os.path.join(self.archive_folder, f"original_{date_str}.mp3")
             shutil.move(temp_file, archive_original)
 
@@ -303,8 +322,11 @@ Tip: Overcast caches. If order doesn't change immediately:
 
     def generate_rss_feed(self):
         """
-        Generate RSS feed with automatic cache-busting timestamp.
-        This ensures GitHub Pages and podcast apps see updates.
+        RSS feed that matches GitHub filenames and preserves desired ordering in apps:
+        - Title uses "01 - ..." to match GitHub
+        - pubDate differs per track (01 newest) for deterministic sorting
+        - guid uses ?v2 to force a one-time Overcast re-index; keep constant forever
+        - channel build dates refreshed each run
         """
         print(f"{'='*70}")
         print("📡 Generating RSS feed...")
@@ -322,26 +344,27 @@ Tip: Overcast caches. If order doesn't change immediately:
         ET.SubElement(channel, "link").text = self.feed_url
         ET.SubElement(channel, "{http://www.itunes.com/dtds/podcast-1.0.dtd}author").text = "Personal Feed"
         ET.SubElement(channel, "{http://www.itunes.com/dtds/podcast-1.0.dtd}explicit").text = "no"
-        
-        # ✅ Forces cache refresh on every run
+
         build_date = datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
         ET.SubElement(channel, "lastBuildDate").text = build_date
         ET.SubElement(channel, "pubDate").text = build_date
 
-        episode_folders = []
-        for item in os.listdir(self.base_folder):
-            item_path = os.path.join(self.base_folder, item)
-            if os.path.isdir(item_path) and item.startswith("Economist_") and item != "Archive":
-                episode_folders.append(item)
-
-        episode_folders.sort(reverse=True)  # newest issue first
+        episode_folders = sorted(
+            [
+                item for item in os.listdir(self.base_folder)
+                if os.path.isdir(os.path.join(self.base_folder, item))
+                and item.startswith("Economist_")
+                and item != "Archive"
+            ],
+            reverse=True
+        )
 
         item_count = 0
+
         for folder in episode_folders:
             folder_path = os.path.join(self.base_folder, folder)
             date_part = folder.replace("Economist_", "")
 
-            # Parse folder date
             try:
                 base_date = datetime.strptime(date_part, "%Y-%m-%d")
             except Exception:
@@ -349,15 +372,13 @@ Tip: Overcast caches. If order doesn't change immediately:
 
             mp3_files = sorted([f for f in os.listdir(folder_path) if f.lower().endswith(".mp3")])
 
-            # We set a "base time" at 23:59 then subtract minutes by track index
-            # This ensures proper chronological ordering in podcast apps
+            # Set base time so that 01 is newest
             base_time = base_date.replace(hour=23, minute=59, second=0)
 
             for idx, mp3_file in enumerate(mp3_files):
                 mp3_path = os.path.join(folder_path, mp3_file)
                 file_size = os.path.getsize(mp3_path)
 
-                # Extract track number from filename prefix "01 - ..."
                 m = re.match(r"^(\d{2})\s+-\s+(.*)\.mp3$", mp3_file, re.IGNORECASE)
                 if m:
                     track = m.group(1)
@@ -366,12 +387,11 @@ Tip: Overcast caches. If order doesn't change immediately:
                     track = "00"
                     title_part = os.path.splitext(mp3_file)[0]
 
-                # ✅ Title format that maintains ordering: "01. Title (Date)"
-                full_title = f"{track}. {title_part} ({date_part})"
+                # ✅ Match GitHub filename naming (what you want visible)
+                full_title = f"{track} - {title_part}"
 
                 file_url = f"{self.site_base}/{quote(folder)}/{quote(mp3_file)}"
 
-                # ✅ pubDate: 01 newest, 02 next, etc (so Overcast keeps your order)
                 pub_dt = base_time - timedelta(minutes=idx)
                 pub_date = pub_dt.strftime("%a, %d %b %Y %H:%M:%S GMT")
 
@@ -379,7 +399,6 @@ Tip: Overcast caches. If order doesn't change immediately:
                 ET.SubElement(item, "title").text = full_title
                 ET.SubElement(item, "description").text = f"The Economist Weekly Edition - {title_part}"
                 ET.SubElement(item, "guid").text = f"{file_url}?{GUID_VERSION}"
-
                 ET.SubElement(item, "pubDate").text = pub_date
                 ET.SubElement(item, "enclosure", {
                     "url": file_url,
@@ -389,10 +408,9 @@ Tip: Overcast caches. If order doesn't change immediately:
 
                 item_count += 1
 
-        # ✅ PROPER XML WRITING - ensures valid XML always
         xml_str = minidom.parseString(ET.tostring(rss)).toprettyxml(indent="  ")
         feed_path = os.path.join(self.base_folder, "feed.xml")
-        
+
         with open(feed_path, "w", encoding="utf-8") as f:
             f.write(xml_str)
 
