@@ -264,14 +264,19 @@ Tip: Overcast caches. If order doesn't change immediately:
                 subprocess.run(cmd, capture_output=True)
 
                 if os.path.exists(output_file):
-                    # ✅ SET CUSTOM ID3 TAGS WITH TRACK NUMBERING
+                    # ✅ REMOVE ALL EXISTING TAGS (INCLUDING CHAPTERS) AND SET CLEAN ONES
                     try:
                         try:
                             audio = ID3(output_file)
+                            # Delete ALL existing tags including chapter metadata
+                            audio.delete()
                         except ID3NoHeaderError:
-                            audio = ID3()
+                            pass
                         
-                        # Title includes track number for proper ordering in podcast apps
+                        # Create fresh ID3 tags with no chapter data
+                        audio = ID3()
+                        
+                        # Set only the tags we want - NO CHAPTERS!
                         custom_title = f"{i:02d}. {clean_title}"
                         audio["TIT2"] = TIT2(encoding=3, text=custom_title)
                         audio["TALB"] = TALB(encoding=3, text=f"The Economist {date_str}")
