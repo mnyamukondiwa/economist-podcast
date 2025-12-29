@@ -298,14 +298,8 @@ Tip: Overcast caches. If order doesn't change immediately:
 
     def generate_rss_feed(self):
         """
-        FIXED for Overcast ordering:
-
-        - Titles begin with "01. 02. 03. ..." so title-sorting keeps your order.
-        - pubDate is unique per track so date-sorting ALSO keeps your order.
-          We set 01 = 23:59, 02 = 23:58, etc (same day).
-          Overcast typically shows newest first => 01 appears first.
-        - Excludes any .txt files (we only include .mp3 anyway).
-        - Uses GitHub Pages URLs.
+        Generate RSS feed with automatic cache-busting timestamp.
+        This ensures GitHub Pages and podcast apps see updates.
         """
         print(f"{'='*70}")
         print("📡 Generating RSS feed...")
@@ -323,6 +317,11 @@ Tip: Overcast caches. If order doesn't change immediately:
         ET.SubElement(channel, "link").text = self.feed_url
         ET.SubElement(channel, "{http://www.itunes.com/dtds/podcast-1.0.dtd}author").text = "Personal Feed"
         ET.SubElement(channel, "{http://www.itunes.com/dtds/podcast-1.0.dtd}explicit").text = "no"
+        
+        # ✅ Forces cache refresh on every run
+        build_date = datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+        ET.SubElement(channel, "lastBuildDate").text = build_date
+        ET.SubElement(channel, "pubDate").text = build_date
 
         episode_folders = []
         for item in os.listdir(self.base_folder):
@@ -385,13 +384,16 @@ Tip: Overcast caches. If order doesn't change immediately:
 
                 item_count += 1
 
+        # ✅ PROPER XML WRITING - ensures valid XML always
         xml_str = minidom.parseString(ET.tostring(rss)).toprettyxml(indent="  ")
         feed_path = os.path.join(self.base_folder, "feed.xml")
+        
         with open(feed_path, "w", encoding="utf-8") as f:
             f.write(xml_str)
 
         print(f"\n✅ RSS feed updated: {feed_path}")
-        print(f"📊 Total items in feed: {item_count}\n")
+        print(f"📊 Total items in feed: {item_count}")
+        print(f"🕐 Build date: {build_date}\n")
 
     def git_push(self):
         print(f"{'='*70}")
